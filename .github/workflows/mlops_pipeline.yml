@@ -1,0 +1,52 @@
+# ==============================================================================
+# .github/workflows/mlops_pipeline.yml
+# Orkestrasi Otomatis (Scheduled CI/CD) di GitHub Actions (100% Gratis)
+# ==============================================================================
+
+name: ACCIS MLOps Weekly Pipeline
+
+on:
+  # 1. Jalan otomatis setiap Senin pukul 01:00 UTC (08:00 WIB)
+  schedule:
+    - cron: "0 1 * * 1"
+  # 2. Jalan otomatis setiap kali ada perubahan kode di branch main
+  push:
+    branches: [ "main" ]
+  # 3. Bisa dipicu manual lewat tombol 'Run workflow' di browser GitHub
+  workflow_dispatch:
+
+jobs:
+  run-mlops-cycle:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. Ambil Kode Terbaru dari Repository
+        uses: actions/checkout@v4
+
+      - name: 2. Siapkan Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 3. Instal Dependencies MLOps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 4. Bangkitkan / Tarik Data ACCIS Terbaru
+        run: python data_accis.py
+
+      - name: 5. Latih Model & Registrasi di MLflow
+        run: python lab1_train_mlflow.py
+
+      - name: 6. Jalankan Deteksi Data Drift (Evidently AI)
+        run: python lab2_monitor_drift.py
+
+      - name: 7. Jalankan Automated Testing (Pytest Quality Gate)
+        run: pytest -v
+
+      - name: 8. Simpan Laporan Drift HTML sebagai Artifact (Bisa Diunduh!)
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidently-drift-report
+          path: reports/accis_drift_report.html
