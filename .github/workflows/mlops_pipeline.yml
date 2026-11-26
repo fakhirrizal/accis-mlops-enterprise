@@ -43,7 +43,7 @@ jobs:
         run: python lab2_monitor_drift.py
 
       - name: 7. Jalankan Automated Testing (Pytest Quality Gate)
-        run: pytest -v
+        run: PYTHONPATH=. pytest -v
 
       - name: 8. Simpan Laporan Drift HTML sebagai Artifact (Bisa Diunduh!)
         uses: actions/upload-artifact@v4
