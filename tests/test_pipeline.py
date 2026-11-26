@@ -1,52 +1,37 @@
 # ==============================================================================
-# .github/workflows/mlops_pipeline.yml
-# Orkestrasi Otomatis (Scheduled CI/CD) di GitHub Actions (100% Gratis)
+# tests/test_pipeline.py
+# Automated Testing (Quality Gate Kode & API) sebelum Pipeline di-Deploy
 # ==============================================================================
 
-name: ACCIS MLOps Weekly Pipeline
+from pathlib import Path
+import pandas as pd
+from fastapi.testclient import TestClient
+from data_accis import build_accis_datasets
+from lab3_api_serving import app
 
-on:
-  # 1. Jalan otomatis setiap Senin pukul 01:00 UTC (08:00 WIB)
-  schedule:
-    - cron: "0 1 * * 1"
-  # 2. Jalan otomatis setiap kali ada perubahan kode di branch main
-  push:
-    branches: [ "main" ]
-  # 3. Bisa dipicu manual lewat tombol 'Run workflow' di browser GitHub
-  workflow_dispatch:
+def test_dataset_schema_and_quality():
+    """Memastikan data ACCIS lengkap, tidak kosong, dan nominal selalu positif."""
+    build_accis_datasets()
+    ref = pd.read_parquet(Path("data/reference_journal.parquet"))
+    ang = pd.read_parquet(Path("data/anggaran_biaya.parquet"))
 
-jobs:
-  run-mlops-cycle:
-    runs-on: ubuntu-latest
+    assert len(ref) > 0, "Data jurnal referensi tidak boleh kosong"
+    assert (ref["djo_debit"] > 0).all(), "Nominal debit harus lebih dari 0"
+    assert {"tahun", "acc_id", "kategori", "bulan_1", "bulan_12"}.issubset(ang.columns)
 
-    steps:
-      - name: 1. Ambil Kode Terbaru dari Repository
-        uses: actions/checkout@v4
+def test_api_health_and_validation():
+    """Memastikan endpoint /health hidup dan Pydantic menolak nominal negatif."""
+    client = TestClient(app)
 
-      - name: 2. Siapkan Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+    resp_health = client.get("/health")
+    assert resp_health.status_code == 200
+    assert resp_health.json()["status"] == "healthy"
 
-      - name: 3. Instal Dependencies MLOps
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: 4. Bangkitkan / Tarik Data ACCIS Terbaru
-        run: python data_accis.py
-
-      - name: 5. Latih Model & Registrasi di MLflow
-        run: python lab1_train_mlflow.py
-
-      - name: 6. Jalankan Deteksi Data Drift (Evidently AI)
-        run: python lab2_monitor_drift.py
-
-      - name: 7. Jalankan Automated Testing (Pytest Quality Gate)
-        run: PYTHONPATH=. pytest -v
-
-      - name: 8. Simpan Laporan Drift HTML sebagai Artifact (Bisa Diunduh!)
-        uses: actions/upload-artifact@v4
-        with:
-          name: evidently-drift-report
-          path: reports/accis_drift_report.html
+    # Uji kirim nominal minus -> WAJIB ditolak dengan kode HTTP 422 (Unprocessable Entity)
+    resp_bad = client.post("/predict-anomaly", json={
+        "mjo_code": "JV-TEST-01",
+        "mjo_date": "2025-11-26",
+        "acc_id": 2,
+        "djo_debit": -50000
+    })
+    assert resp_bad.status_code == 422
